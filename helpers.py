@@ -177,7 +177,7 @@ async def plays(songe):
 async def getinstantmix(id, limit):
     url = f"{server_url}/Items/{id}/InstantMix"
 
-    params = {"limit": limit, "api_key": api_key}  # Provide API key
+    params = {"limit": limit, "apiKey": api_key}  # Provide API key
 
     # Send GET request to Jellyfin API
     response = requests.get(url, params=params)
@@ -271,7 +271,7 @@ def songs():
         "Recursive": "true",  # Fetch items recursively (including albums, etc.)
         "IncludeItemTypes": "Audio",  # Only fetch audio items (songs)
         "SortBy": "SortName",  # Sort by name
-        "api_key": api_key,  # Provide API key
+        "api_key": apiKey,  # Provide API key
     }
 
     # Send GET request to Jellyfin API
