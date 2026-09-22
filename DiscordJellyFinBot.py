@@ -239,6 +239,12 @@ async def auth(ctx):
     userid = str(ctx.author.id)
     await music_commands.auth(ctx, userid)
 
+@bot.command()
+async def lookup(ctx, *, song_name=""):
+    '''Command to add a song/s to the queue.'''
+    return await music_commands.idLookup(song_name)
+
+
 # Run the bot
 print("Getting songs database from jellyfin server...")
 if music_commands.helpers.getsongs():

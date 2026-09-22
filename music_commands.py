@@ -11,10 +11,17 @@ config.read('config.cfg')
 
 #api
 port = config.getint('API', 'port')
-
+image_url_required = config.getboolean('JellyFin', 'image_url_required')
+url = config.get('JellyFin', 'url')
 player = None
 bot = None
 VERSION = None
+image_url = ""
+
+if image_url_required:
+    image_url = config.get('JellyFin', 'image_url') + f"/Items/(id)/Images/Primary?width=2048&height=2048"
+else:
+    image_url = f"{url}/Items/(id)/Images/Primary?width=2048&height=2048"
 
 def setup(bott, music_player, APPVERSION):
     global bot, player, VERSION
@@ -408,61 +415,72 @@ async def stop():
 import random
 
 async def randomplaylist(keywords):
-    """Add multiple random songs to the queue based on album, artist, or all songs."""
+    try:
+        """Add multiple random songs to the queue based on album, artist, or all songs."""
 
-    # Determine song count
-    count = 10
+        # Determine song count
+        count = 10
 
-    if keywords:
-        try:
-            count = int(keywords[-1])
-            keywords = keywords[:-1]
-        except ValueError:
-            pass
+        if keywords:
+            if helpers.is_numeric(keywords[0]) or len(keywords) >= 3 and helpers.is_numeric(keywords[2]):
+                try:
+                    count = int(keywords[-1])
+                    keywords = keywords[:-1]
+                except ValueError:
+                    pass
 
-    if count > 10000:
-        await helpers.error("You can only add 10,000 songs at a time!")
-        return "You can only add 10,000 songs at a time!"
+        if count > 10000:
+            await helpers.error("You can only add 10,000 songs at a time!")
+            return "You can only add 10,000 songs at a time!"
 
-    serversongslist = await helpers.get_song_list()
-    foundsongs = []
+        serversongslist = await helpers.get_song_list()
+        foundsongs = []
 
-    # No search criteria provided
-    if not keywords:
-        foundsongs = serversongslist.copy()
+        # No search criteria provided
+        print(keywords)
+        if not keywords:
+            foundsongs = serversongslist.copy()
 
-    else:
-        search_type = keywords[0].casefold()
-        search_query = " ".join(keywords[1:]).casefold()
+        else:
+            search_type = keywords[0].casefold()
+            search_query = " ".join(keywords[1:]).casefold()
 
-        for song in serversongslist:
+            for song in serversongslist:
 
-            if search_type == "album:":
-                if search_query in song["Album"].casefold():
+                if search_type == "album:":
+                    if search_query in song["Album"].casefold():
+                        foundsongs.append(song)
+
+                elif search_type == "artist:":
+                    if any(
+                        search_query in artist.casefold()
+                        for artist in song["Artists"]
+                    ):
+                        foundsongs.append(song)
+
+                elif search_type == "decade:":
+                    year = song["ProductionYear"]
+                    if year is not None:
+                        year = int(year)
+                        if int(search_query) <= year <= int(search_query)+9:
+                            foundsongs.append(song)
+                else:
+                    # Unknown filter, include all songs
                     foundsongs.append(song)
 
-            elif search_type == "artist:":
-                if any(
-                    search_query in artist.casefold()
-                    for artist in song["Artists"]
-                ):
-                    foundsongs.append(song)
+        if not foundsongs:
+            await helpers.error("No Songs were found!")
+            return "No Songs were found!"
 
-            else:
-                # Unknown filter, include all songs
-                foundsongs.append(song)
+        randomsongslist = [
+            random.choice(foundsongs)
+            for _ in range(count)
+        ]
 
-    if not foundsongs:
-        await helpers.error("No Songs were found!")
-        return "No Songs were found!"
-
-    randomsongslist = [
-        random.choice(foundsongs)
-        for _ in range(count)
-    ]
-
-    await helpers.playqueue(randomsongslist)
-    return "Songs added to the queue!"
+        await helpers.playqueue(randomsongslist)
+        return "Songs added to the queue!"
+    except Exception as e:
+        print(e)
 
 
 
@@ -902,6 +920,8 @@ async def playlist(keywords, userid, discord):
                     await helpers.error("No playlist Id was provided!")
                 else:
                     return "No playlist Id was provided!"
+        elif keywords[0] == "usage".casefold():
+            await helpers.usage_playlist()
         else:
             if discord:
                 await helpers.error("Please Enter a Valid Sub-Command!")
@@ -923,3 +943,54 @@ async def auth(ctx, userid):
         await ctx.reply("Check your DMs for instructions to access the web UI")
     except Exception as e:
         print(e)
+
+async def idLookup(id):
+    song_list = ""
+    if " " in id:
+        id = id.replace(" ", "")
+    if "," in id:
+        song_list = id.split(",")
+    elif "," in id:
+        song_list = id.split(",")
+    else:
+        song_list = []
+        song_list.append(id)
+
+    found = []
+    id  = song_list
+    if len(id) == 1:
+        id = id[0]
+        totalList = []
+        totalList.extend(player.song_list)
+        totalList.extend(player.album_list)
+        totalList.extend(player.artist_list)
+        for check in totalList:
+            if id == check["Id"]:
+                found = check
+                break
+        try:
+            if not found == []:
+                message = ""
+                imageid = ""
+                if found.get("Type") == "Song":
+                    artist = ""
+                    for i in found["Artists"]:
+                        artist = artist + " " + i
+                    message = "**Name:** " + found["Name"] + "\n**Artists:** " + artist + "\n**Album:** " + found.get("Album") + "\n**Album Id:**" + found.get("AlbumId") + "\n**Id: **" + found["Id"] + "\n**Production Year: **" + str(found.get("ProductionYear")) + "\n**Type: **Song"
+                    imageid = image_url.replace('(id)', found['AlbumId'])
+                elif found.get("Type") == "Album":
+                    artist = ""
+                    for i in found["Artists"]:
+                        artist = artist + " " + i
+                    message = "**Name:** " + found["Name"] + "\n**Artists:** " + artist + "\n**Production Year:** " + str(found.get("ProductionYear")) + "\n**Type: **" + "Album"
+                    imageid = image_url.replace('(id)', found['AlbumId'])
+                else:
+                    message = "**Name: **" + found["Name"] + "\n**Id: **" + found["Id"] + "\n**Type:** Artist"
+                    imageid = image_url.replace('(id)', found['Id'])
+                await helpers.embededs("Found Data", message, imageid)
+            else:
+                await helpers.error("No Data Found")
+        except Exception as e:
+            print("Error: " + e)
+    else:
+        await helpers.error("Too many ids provided, please provide no more than 1 id")

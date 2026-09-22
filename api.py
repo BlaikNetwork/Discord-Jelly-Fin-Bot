@@ -91,6 +91,14 @@ async def instantmix(id=" "):
 async def songs():
     return await commands.helpers.get_song_list()
 
+@app.get("/api/albums/")
+async def songs():
+    return player.album_list
+
+@app.get("/api/artists/")
+async def songs():
+    return player.artist_list
+
 @app.get("/api/currentlyplayingsong/")
 async def currently_playing_song():
     return player.nowplaying

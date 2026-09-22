@@ -11,3 +11,5 @@ class PlayerState:
         self.song_list = []
         self.data = ""
         self.song_finished = asyncio.Event()
+        self.artist_list = []
+        self.album_list = []

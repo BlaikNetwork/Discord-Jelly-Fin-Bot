@@ -7,6 +7,7 @@ import math
 import uuid
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import time
 from pathlib import Path
 config = configparser.ConfigParser()
 
@@ -22,10 +23,19 @@ text_channel = config.getint('Bot', 'text_channel_id')
 server_url = config.get('JellyFin', 'url')  # Replace with your Jellyfin server URL
 api_key = config.get('JellyFin', 'api_key')  # Your Jellyfin API key
 download_urls = (
-    server_url + "/Items/<id>/Download?api_key=" + api_key
+    server_url + "/Items/<id>/Download?apiKey=" + api_key
 )
 ffmpeg_path = config.get('FFMPEG', 'ffmpeg_path')
 ffmpeg_path_required = config.getboolean('FFMPEG', 'ffmpeg_path_required')
+join_msg = config.get('MESSAGES', 'join')
+leave_msg = config.get('MESSAGES', 'leave')
+image_url_required = config.getboolean('JellyFin', 'image_url_required')
+image_url = ""
+
+if image_url_required:
+    image_url = config.get('JellyFin', 'image_url') + f"/Items/(id)/Images/Primary?width=2048&height=2048"
+else:
+    image_url = f"{server_url}/Items/(id)/Images/Primary?width=2048&height=2048"
 
 player = None
 bot = None
@@ -77,6 +87,21 @@ async def embeded(status, songs):
     channel = bot.get_channel(text_channel)
     await channel.send(embed=embed)
 
+async def embededs(status, songs, image):
+    # Basic embed creation
+    try:
+        embed = discord.Embed(
+            title=status,
+            description=songs,
+            color=discord.Color.dark_blue(),
+        )
+        if image:
+            embed.set_image(url=image)
+        channel = bot.get_channel(text_channel)
+        await channel.send(embed=embed)
+    except Exception as e:
+        print("Error: " + e)
+
 async def success(status):
     # Basic embed creation
     embed = discord.Embed(
@@ -103,9 +128,10 @@ async def getSongData(songed):
     song_list = await get_song_list()
     for song in song_list:
         if song["Id"] == songed:   
-            Artists = song.get("Artists")
-            Artist = Artists[0]
-            songe = f"{song.get('Name')} | **Artist:** {Artist} | **Album:** {song.get('Album')} | **Id:** {song.get('Id')}"
+            artist = ""
+            for i in song["Artists"]:
+                artist = artist + " " + i
+            songe = f"{song.get('Name')} | **Artist:** {artist} | **Album:** {song.get('Album')} | **Id:** `{song.get('Id')}`"
             return songe
 
     print("Song: " + str(songed) + " not found")
@@ -121,30 +147,32 @@ async def song2(songed):
     return None
 
 async def nowplayingEmbed(songe):
-        song = await song2(songe)
-        if song is None:
-            return
-        song_name = song.get('Name')
-        album = song.get("Album")
-        artists_array = song.get("Artists")
-        artist = artists_array[0]
-        albumId = song.get("AlbumId")
-        albumart = f"{server_url}/Items/{albumId}/Images/Primary?width=256&height=256"
-        presence = f"{song_name} by {artist}"
-        nowplaying = f":musical_note: Now playing: {song_name}"
-        desc = f"**Artist:** {artist}\n**Album:** {album}"
-        embed = discord.Embed(title=nowplaying, description=desc, color=discord.Color.random())
-        embed.set_thumbnail(url=albumart)
-        channel = bot.get_channel(text_channel)
-        server_name = channel.guild.name
-        channel_name = channel.name
-        activity = discord.Activity(
-            type=discord.ActivityType.listening,
-            name=server_name + " " + channel_name,
-            state=presence
-        )
-        await bot.change_presence(activity=activity)
-        await channel.send(embed=embed)
+    song = await song2(songe)
+    if song is None:
+        return
+    print(song)
+    song_name = song.get('Name')
+    album = song.get("Album")
+    artist = ""
+    for i in song["Artists"]:
+        artist = artist + " " + i
+    albumId = song.get("AlbumId")
+    albumart = image_url.replace('(id)', albumId)
+    presence = f"{song_name} by {artist}"
+    nowplaying = f":musical_note: Now playing: {song_name}"
+    desc = f"**Artist:** {artist}\n**Album:** {album}"
+    embed = discord.Embed(title=nowplaying, description=desc, color=discord.Color.random())
+    embed.set_thumbnail(url=albumart)
+    channel = bot.get_channel(text_channel)
+    server_name = channel.guild.name
+    channel_name = channel.name
+    activity = discord.Activity(
+        type=discord.ActivityType.listening,
+        name=server_name + " " + channel_name,
+        state=presence
+    )
+    await bot.change_presence(activity=activity)
+    await channel.send(embed=embed)
 
 async def playlistContentEmbed(name, id, songs, pageStart):
     correct_songs = []
@@ -240,7 +268,7 @@ async def plays(songe):
 async def getinstantmix(id, limit):
     url = f"{server_url}/Items/{id}/InstantMix"
 
-    params = {"limit": limit, "api_key": api_key}  # Provide API key
+    params = {"limit": limit, "apiKey": api_key}  # Provide API key
 
     # Send GET request to Jellyfin API
     response = requests.get(url, params=params)
@@ -279,15 +307,13 @@ async def getinstantmix(id, limit):
 
 def getsongs():
     global player
-    songs_list = []
-    songed, data = songs()
-    if songed is None:
+    songed, albums, artists = songs()
+    if songed is None or albums is None or artists is None:
         return False
     else:
-        #player.song_list.extend(songed)
-        songs_list = songed
-        for song in songs_list:
-            player.song_list.append(song)
+        player.song_list = songed
+        player.album_list = albums
+        player.artist_list = artists
         return True
 
 '''
@@ -343,16 +369,16 @@ def songs():
 
 def songs():
     url = f"{server_url}/Items"
-    chunk_size = 750
+    chunk_size = 0
 
     params = {
         "Recursive": "true",
-        "IncludeItemTypes": "Audio",
+        "IncludeItemTypes": "Audio,MusicAlbum,MusicArtist",
         "SortBy": "SortName",
         "Limit": 1,
-        "api_key": api_key,
+        "apiKey": api_key,
     }
-
+    session = requests.Session()
     response = requests.get(url, params=params)
 
     if response.status_code != 200:
@@ -361,18 +387,20 @@ def songs():
 
     first_data = response.json()
     total_songs = first_data.get("TotalRecordCount", 0)
+    chunk_size = int(total_songs) / 3
+    chunk_size = math.ceil(chunk_size)
 
     def process_chunk(start_index):
         params = {
             "Recursive": "true",
-            "IncludeItemTypes": "Audio",
+            "IncludeItemTypes": "Audio,MusicAlbum,MusicArtist",
             "SortBy": "SortName",
             "StartIndex": start_index,
             "Limit": chunk_size,
-            "api_key": api_key,
+            "apiKey": api_key,
         }
 
-        response = requests.get(url, params=params)
+        response = session.get(url, params=params)
 
         if response.status_code != 200:
             print(f"Error loading chunk {start_index}")
@@ -380,39 +408,61 @@ def songs():
 
         data = response.json()
         chunk_songs = []
-
+        chunk_albums = []
+        chunk_artists = []
         for song in data.get("Items", []):
-            chunk_songs.append({
-                "Name": song["Name"],
-                "Artists": song.get("Artists", ["Unknown Artist"]),
-                "Album": song.get("Album", "Unknown Album"),
-                "AlbumId": song.get("AlbumId"),
-                "Id": song["Id"],
-            })
-
+            if song.get("Type") == "Audio":
+                chunk_songs.append({
+                    "Name": song["Name"],
+                    "Artists": song.get("Artists", ["Unknown Artist"]),
+                    "Album": song.get("Album", "Unknown Album"),
+                    "AlbumId": song.get("AlbumId"),
+                    "Id": song["Id"],
+                    "ProductionYear": song.get("ProductionYear"),
+                    "Type": "Song",
+                })
+            elif song.get("Type") == "MusicAlbum":
+                chunk_albums.append({
+                    "Name": song["Name"],
+                    "Artists": song.get("Artists", ["Unknown Artist"]),
+                    "Id": song["Id"],
+                    "Image": song.get("ImageTags", {}).get("Primary"),
+                    "ProductionYear": song.get("ProductionYear"),
+                    "Type": "Album",
+                })
+            else:
+                chunk_artists.append({
+                    "Name": song["Name"],
+                    "Id": song["Id"],
+                    "Image": song.get("ImageTags", {}).get("Primary"),
+                    "Type": "Artist",
+                })
         print(
             f"Processed chunk {start_index} "
             f"({len(chunk_songs)} songs)"
         )
 
-        return chunk_songs
+        return chunk_songs, chunk_albums, chunk_artists
 
     songed = []
-
-    # Maximum 5 chunks running at once
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    albums = []
+    artists = []
+    timer = time.perf_counter()
+    with ThreadPoolExecutor() as executor:
 
         results = executor.map(
             process_chunk,
             range(0, total_songs, chunk_size)
         )
+        for chunk_songs, chunk_albums, chunk_artists in results:
+            songed.extend(chunk_songs)
+            albums.extend(chunk_albums)
+            artists.extend(chunk_artists)
 
-        for chunk in results:
-            songed.extend(chunk)
+    timer = time.perf_counter() - timer
+    print(f"Finished loading {len(songed)} songs, {len(albums)} albums, {len(artists)} artists in {timer:.2f} seconds" )
 
-    print(f"Finished loading {len(songed)} songs")
-
-    return songed, first_data
+    return songed, albums, artists
 
 async def playqueue(songs):
 
@@ -624,7 +674,7 @@ async def authGen(userid):
 
 async def startUp():
     embed = discord.Embed(
-                title="Hello There!",
+                title=join_msg,
                 color=discord.Color.blurple()
             )
     channel = bot.get_channel(text_channel)
@@ -632,9 +682,11 @@ async def startUp():
 
 async def exit():
     embed = discord.Embed(
-            title="Bye Bye",
+            title=leave_msg,
             color=discord.Color.blurple()
         )
     channel = bot.get_channel(text_channel)
     await channel.send(embed=embed)
-    
+
+async def usage_playlist():
+    await embeded("Playlist Usage", "list `playlist id / page` `page`\ncreate `name`\naddsongs `playlist id` `id1, id2, id3`\ndelete `playlist id`\nremovesongs `playlist id` `id1, id2, id3`\n queue `playlist id`")
