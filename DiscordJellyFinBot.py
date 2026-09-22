@@ -74,7 +74,8 @@ async def help(ctx):
     embed.add_field(name="!playnow", value="Command to add a song/s next in the queue and play them", inline=False)
     embed.add_field(name="!remove", value="Command to remove songs from the queue", inline=False)
     embed.add_field(name="!playlist", value="Command that adds playlist support, see !playlist usage for more info", inline=False)
-    embed.add_field(name="!auth", value="Access web portal ", inline=False)
+    embed.add_field(name="!auth", value="Access web portal", inline=False)
+    embed.add_field(name="!lookup", value="Command to lookup ids", inline=False)
     
     channel = bot.get_channel(text_channel)
     await channel.send(embed=embed)
