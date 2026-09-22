@@ -2,11 +2,26 @@ import asyncio
 import math
 import random
 import helpers
+import discord
+import configparser
+config = configparser.ConfigParser()
 
+# Read the config file
+config.read('config.cfg')
 
+#api
+port = config.getint('API', 'port')
+image_url_required = config.getboolean('JellyFin', 'image_url_required')
+url = config.get('JellyFin', 'url')
 player = None
 bot = None
 VERSION = None
+image_url = ""
+
+if image_url_required:
+    image_url = config.get('JellyFin', 'image_url') + f"/Items/(id)/Images/Primary?width=2048&height=2048"
+else:
+    image_url = f"{url}/Items/(id)/Images/Primary?width=2048&height=2048"
 
 def setup(bott, music_player, APPVERSION):
     global bot, player, VERSION
@@ -148,10 +163,7 @@ async def playnext(song_name):
     list = player.queue_list[:]
     player.queue_list.clear()
     for i in selected:
-        artists_array = i.get("Artists")
-        artist = artists_array[0]
-        songe = f"{i.get('Name')} | **Artist:** {artist} | **Album:** {i.get('Album')} | **Id:** {i.get('Id')}"
-        player.queue_list.append(songe)
+        player.queue_list.append(i)
     for ii in list:
         player.queue_list.append(ii)
     
@@ -213,10 +225,7 @@ async def playnow(song_name):
     list = player.queue_list[:]
     player.queue_list.clear()
     for i in selected:
-        artists_array = i.get("Artists")
-        artist = artists_array[0]
-        songe = f"{i.get('Name')} | **Artist:** {artist} | **Album:** {i.get('Album')} | **Id:** {i.get('Id')}"
-        player.queue_list.append(songe)
+        player.queue_list.append(i)
     for ii in list:
         player.queue_list.append(ii)
     
@@ -296,11 +305,8 @@ async def remove(song_name = ""):
 
     for i in selected:
         for ii in player.queue_list[:]:
-            artists_array = i.get("Artists")
-            artist = artists_array[0]
-            songe = f"{i.get('Name')} | **Artist:** {artist} | **Album:** {i.get('Album')} | **Id:** {i.get('Id')}"
-            if ii == songe:
-                player.queue_list.remove(songe)
+            if ii == i:
+                player.queue_list.remove(i)
 
     await helpers.success("Removed " + str(len(selected)) + " ids from the Queue!")
     return "Removed " + str(len(selected)) + " ids from the Queue!"
@@ -350,7 +356,7 @@ async def queue( page=1):
         correct_page_songs = []
 
         for song in page_songs:
-            songed = f"{song} \n"
+            songed = f"{await helpers.getSongData(song)} \n"
             correct_page_songs.append(songed)
 
         # Create the message for the page
@@ -409,61 +415,72 @@ async def stop():
 import random
 
 async def randomplaylist(keywords):
-    """Add multiple random songs to the queue based on album, artist, or all songs."""
+    try:
+        """Add multiple random songs to the queue based on album, artist, or all songs."""
 
-    # Determine song count
-    count = 10
+        # Determine song count
+        count = 10
 
-    if keywords:
-        try:
-            count = int(keywords[-1])
-            keywords = keywords[:-1]
-        except ValueError:
-            pass
+        if keywords:
+            if helpers.is_numeric(keywords[0]) or len(keywords) >= 3 and helpers.is_numeric(keywords[2]):
+                try:
+                    count = int(keywords[-1])
+                    keywords = keywords[:-1]
+                except ValueError:
+                    pass
 
-    if count > 10000:
-        await helpers.error("You can only add 10,000 songs at a time!")
-        return "You can only add 10,000 songs at a time!"
+        if count > 10000:
+            await helpers.error("You can only add 10,000 songs at a time!")
+            return "You can only add 10,000 songs at a time!"
 
-    serversongslist = await helpers.get_song_list()
-    foundsongs = []
+        serversongslist = await helpers.get_song_list()
+        foundsongs = []
 
-    # No search criteria provided
-    if not keywords:
-        foundsongs = serversongslist.copy()
+        # No search criteria provided
+        print(keywords)
+        if not keywords:
+            foundsongs = serversongslist.copy()
 
-    else:
-        search_type = keywords[0].casefold()
-        search_query = " ".join(keywords[1:]).casefold()
+        else:
+            search_type = keywords[0].casefold()
+            search_query = " ".join(keywords[1:]).casefold()
 
-        for song in serversongslist:
+            for song in serversongslist:
 
-            if search_type == "album:":
-                if search_query in song["Album"].casefold():
+                if search_type == "album:":
+                    if search_query in song["Album"].casefold():
+                        foundsongs.append(song)
+
+                elif search_type == "artist:":
+                    if any(
+                        search_query in artist.casefold()
+                        for artist in song["Artists"]
+                    ):
+                        foundsongs.append(song)
+
+                elif search_type == "decade:":
+                    year = song["ProductionYear"]
+                    if year is not None:
+                        year = int(year)
+                        if int(search_query) <= year <= int(search_query)+9:
+                            foundsongs.append(song)
+                else:
+                    # Unknown filter, include all songs
                     foundsongs.append(song)
 
-            elif search_type == "artist:":
-                if any(
-                    search_query in artist.casefold()
-                    for artist in song["Artists"]
-                ):
-                    foundsongs.append(song)
+        if not foundsongs:
+            await helpers.error("No Songs were found!")
+            return "No Songs were found!"
 
-            else:
-                # Unknown filter, include all songs
-                foundsongs.append(song)
+        randomsongslist = [
+            random.choice(foundsongs)
+            for _ in range(count)
+        ]
 
-    if not foundsongs:
-        await helpers.error("No Songs were found!")
-        return "No Songs were found!"
-
-    randomsongslist = [
-        random.choice(foundsongs)
-        for _ in range(count)
-    ]
-
-    await helpers.playqueue(randomsongslist)
-    return "Songs added to the queue!"
+        await helpers.playqueue(randomsongslist)
+        return "Songs added to the queue!"
+    except Exception as e:
+        print(e)
 
 
 
@@ -710,3 +727,270 @@ async def instantmix(id):
     except:
         await helpers.error(f"Could not Retrieve Instant Mix from JellyFin server!")
         return "Could not Retrieve Instant Mix from JellyFin server!"
+
+async def playlist(keywords, userid, discord):
+    try:
+        if not keywords:
+            if discord:
+                await helpers.error("Please Enter a Valid Sub-Command")
+                return
+            else:
+                return "Please Enter a Valid Sub-Command"
+
+        elif keywords[0] == "list".casefold():
+            if len(keywords) > 1:
+                if helpers.is_numeric(keywords[1]):
+                    page = keywords[1]
+                    return await helpers.read_playlists(userid, page, playlistId="", discordmessage=discord)
+                else:
+                    playlistId = keywords[1]
+                    if len(keywords) > 2:
+                        if helpers.is_numeric(keywords[2]):
+                            page = keywords[2]
+                            return await helpers.read_playlists(userid, page, playlistId, discordmessage=discord)
+                    else:
+                        return await helpers.read_playlists(userid, page=1, playlistId=playlistId, discordmessage=discord)
+            else:
+                return await helpers.read_playlists(userid, page=1, playlistId="", discordmessage=discord)
+        elif keywords[0] == "create".casefold():
+            if keywords[1:]:
+                name = keywords[1:]
+                name = " ".join(name)
+                if len(name) >30:
+                    if discord:
+                        await helpers.error("Playlist Name is too long!")
+                    else:
+                        return "Playlist Name is too long!"
+                else:
+                    try:
+                        id = await helpers.create_playlist(userid, name)
+                        if discord:
+                            await helpers.success(f"Sucessfuly created playlist `{name}` with id `{id}`")
+                        else:
+                            return f"Sucessfuly created playlist {name} with id {id}"
+                    except Exception as e:
+                        if discord:
+                            await helpers.error("An error occurred while creating your playlist!")
+                        else:
+                            return "An error occurred while creating your playlist!"
+                        print(e)
+            else:
+                if discord:
+                    await helpers.error("No playlist name was given!")
+                else:
+                    return "No playlist name was given!"
+        elif keywords[0] == "addsongs".casefold():
+            if len(keywords) > 2:
+                playlistId = keywords[1]
+                keywords = "".join(keywords[2:])
+                keywords2 = []
+                if "," in str(keywords):
+                    keywords2 = str(keywords).split(",")
+                song_list = [song.strip().rstrip(",") for song in keywords2]
+
+                # Check if the song is in the available list
+                selected = []
+                songed_list = song_list
+                songs = await helpers.get_song_list()
+                for ii in songed_list[:]:
+                    for i in songs:
+                        song = i["Id"]
+                        if song.casefold() == ii.casefold():
+                            selected.append(song)       
+                            song_list.remove(ii)
+                            if len(song_list) == 0:
+                                break
+
+                print(str(selected))
+
+                if len(selected) == 0:
+                    if discord:
+                        await helpers.error(f"Sorry, I can't find any of the song/songs provided. Please choose from !songs")
+                        return
+                    else:
+                        return f"Sorry, I can't find any of the song/songs provided. Please choose from !songs"
+                    
+                if len(song_list) >= 1:
+                    invalid = len(song_list)
+                    if discord:
+                        await helpers.error(f"Found {invalid} invalid song ids")
+                        return
+                    else:  
+                        return f"Found {invalid} invalid song ids"
+
+                try:
+                    if discord:
+                        await helpers.addSongs_Playlist(playlistId, userid, selected, discordmessage=discord)
+                        await helpers.success(f"Successfully Added `{len(selected)}` songs to your platlist with id `{playlistId}`")
+                    else:
+                        if await helpers.addSongs_Playlist(playlistId, userid, selected,discordmessage=discord):
+                            return f"Successfully Added `{len(selected)}` songs to your platlist with id `{playlistId}`"
+                        else:
+                            return "Playlist not Found!"
+                except Exception as e:
+                    print(e)
+                    if discord:
+                        await helpers.error("An error occurred while adding songs to your playlist!")
+                    else:
+                        return "An error occurred while adding songs to your playlist!"
+            else:
+                if discord:
+                    await helpers.error("No playlist id or list of songs provided!")
+                else:
+                    return "No playlist id or list of songs provided!"
+        elif keywords[0] == "delete".casefold():
+            if len(keywords) > 1:
+                playlistId = keywords[1]
+                if discord:
+                    await helpers.delete_playlist(userid, playlistId, discordmessage=discord)
+                else:
+                    return await helpers.delete_playlist(userid, playlistId, discordmessage=discord)
+            else:
+                if discord:
+                    await helpers.error("No playlist Id was given!")
+                else:
+                    return "No playlist Id was given!"
+        elif keywords[0] == "removesongs".casefold():
+            if len(keywords) > 2:
+                playlistId = keywords[1]
+                keywords = "".join(keywords[2:])
+                keywords2 = []
+                if "," in str(keywords):
+                    keywords2 = str(keywords).split(",")
+                song_list = [song.strip().rstrip(",") for song in keywords2]
+
+                # Check if the song is in the available list
+                selected = []
+                songed_list = song_list
+                songs = await helpers.get_song_list()
+                for ii in songed_list[:]:
+                    for i in songs:
+                        song = i["Id"]
+                        if song.casefold() == ii.casefold():
+                            selected.append(song)       
+                            song_list.remove(ii)
+                            if len(song_list) == 0:
+                                break
+
+                if len(selected) == 0:
+                    if discord:
+                        await helpers.error(f"Sorry, I can't find any of the song/songs provided. Please choose from !songs")
+                    else:
+                        return f"Sorry, I can't find any of the song/songs provided. Please choose from !songs"
+                    
+                if len(song_list) >= 1:
+                    invalid = len(song_list)
+                    if discord:
+                        await helpers.error(f"Found {invalid} invalid song ids")
+                    else:
+                        return f"Found {invalid} invalid song ids"
+                try:
+                    if discord:
+                        await helpers.removeSongs_playlist(userid, playlistId, selected, discordmessage=discord)
+                    else:
+                        return await helpers.removeSongs_playlist(userid, playlistId, selected, discordmessage=discord)
+                except Exception as e:
+                    print(e)
+                    if discord:
+                        await helpers.error("An error occurred while removing songs from your playlist!")
+                    else:
+                        return "An error occurred while removing songs from your playlist!"
+                    
+            else:
+                if discord:
+                    await helpers.error("No playlist id or list of songs provided!")
+                else:
+                    return "No playlist id or list of songs provided!"
+        elif keywords[0] == "queue".casefold():
+            if len(keywords) > 1:
+                playlistId = keywords[1]
+                try:
+                    if discord:
+                        await helpers.queue_playlist(playlistId, userid, discordmessage=discord)
+                    else:
+                        return await helpers.queue_playlist(playlistId, userid,discordmessage=discord)
+                except Exception as e:
+                    print(e)
+                    if discord:
+                        await helpers.error("An error occured when queuing your playlist")
+                    else:
+                        return "An error occured when queuing your playlist"
+            else:
+                if discord:
+                    await helpers.error("No playlist Id was provided!")
+                else:
+                    return "No playlist Id was provided!"
+        elif keywords[0] == "usage".casefold():
+            await helpers.usage_playlist()
+        else:
+            if discord:
+                await helpers.error("Please Enter a Valid Sub-Command!")
+            else:
+                return "Please Enter a Valid Sub-Command!"
+    except Exception as e:
+        print(e)
+        if discord:
+            await helpers.error("An error occurred!")
+        else:
+            return "An error occurred!"
+
+async def auth(ctx, userid):
+    try:
+        token = await helpers.authGen(userid)
+        desc = f"Go to http://127.0.0.1/{port} and enter the generated linking code below\n **Linking code** {token}"
+        embed = discord.Embed(title="Blaik Network JellyFin UI Instructions", description=desc, color=discord.Color.onyx_embed())
+        await ctx.author.send(embed=embed)
+        await ctx.reply("Check your DMs for instructions to access the web UI")
+    except Exception as e:
+        print(e)
+
+async def idLookup(id):
+    song_list = ""
+    if " " in id:
+        id = id.replace(" ", "")
+    if "," in id:
+        song_list = id.split(",")
+    elif "," in id:
+        song_list = id.split(",")
+    else:
+        song_list = []
+        song_list.append(id)
+
+    found = []
+    id  = song_list
+    if len(id) == 1:
+        id = id[0]
+        totalList = []
+        totalList.extend(player.song_list)
+        totalList.extend(player.album_list)
+        totalList.extend(player.artist_list)
+        for check in totalList:
+            if id == check["Id"]:
+                found = check
+                break
+        try:
+            if not found == []:
+                message = ""
+                imageid = ""
+                if found.get("Type") == "Song":
+                    artist = ""
+                    for i in found["Artists"]:
+                        artist = artist + " " + i
+                    message = "**Name:** " + found["Name"] + "\n**Artists:** " + artist + "\n**Album:** " + found.get("Album") + "\n**Album Id:**" + found.get("AlbumId") + "\n**Id: **" + found["Id"] + "\n**Production Year: **" + str(found.get("ProductionYear")) + "\n**Type: **Song"
+                    imageid = image_url.replace('(id)', found['AlbumId'])
+                elif found.get("Type") == "Album":
+                    artist = ""
+                    for i in found["Artists"]:
+                        artist = artist + " " + i
+                    message = "**Name:** " + found["Name"] + "\n**Artists:** " + artist + "\n**Production Year:** " + str(found.get("ProductionYear")) + "\n**Type: **" + "Album"
+                    imageid = image_url.replace('(id)', found['AlbumId'])
+                else:
+                    message = "**Name: **" + found["Name"] + "\n**Id: **" + found["Id"] + "\n**Type:** Artist"
+                    imageid = image_url.replace('(id)', found['Id'])
+                await helpers.embededs("Found Data", message, imageid)
+            else:
+                await helpers.error("No Data Found")
+        except Exception as e:
+            print("Error: " + e)
+    else:
+        await helpers.error("Too many ids provided, please provide no more than 1 id")
