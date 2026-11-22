@@ -237,17 +237,21 @@ async def plays(songe):
         player.channel = voice_client
 
     try:
+        gain_db = ""
+        for i in player.song_list:
+            if i["Id"] == songe:
+                gain_db = i["Gain"]
         player.nowplaying = songe
         song_path = download_urls.replace("<id>", songe)
         if ffmpeg_path_required == True:
             audio_source = FFmpegPCMAudio(
                 song_path,
                 executable=ffmpeg_path,
-                options='-filter:a "loudnorm=I=-16:TP=-1.5:LRA=11"',
+                options=f'-filter:a "volume={gain_db}dB"'
             )
         else:
             audio_source = FFmpegPCMAudio(
-                song_path, options='-filter:a "loudnorm=I=-16:TP=-1.5:LRA=11"'
+                song_path, options=f'-filter:a "volume={gain_db}dB"'
             )
         
         player.song_finished.clear()
@@ -420,6 +424,7 @@ def songs():
                     "Id": song["Id"],
                     "ProductionYear": song.get("ProductionYear"),
                     "Type": "Song",
+                    "Gain": song.get("NormalizationGain", "0")
                 })
             elif song.get("Type") == "MusicAlbum":
                 chunk_albums.append({
